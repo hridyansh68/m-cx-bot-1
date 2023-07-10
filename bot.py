@@ -178,7 +178,7 @@ def get_data_for_input():
     data = {
         "Order Status": order_details_json["status"],
         "Order Date": order_details_json["created"],
-        "Actual/Expected Delivery Date": '-' if "delivery_date" not in order_details_json["delivery_date"] else order_details_json["delivery_date"],
+        "Actual/Expected Delivery Date": '-' if "delivery_date" not in order_details_json else order_details_json["delivery_date"],
         "Order Amount": order_details_json["payment_details"]["customer_amount"],
         "Payment Mode": '-' if "mode_of_payment" not in order_details_json else order_details_json["mode_of_payment"],
         "Current Date": datetime.datetime.now().strftime("%Y-%m-%d"),
