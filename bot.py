@@ -182,7 +182,7 @@ def get_data_for_input():
         "Actual/Expected Delivery Date": order_details_json["delivery_date"],
         "Order Amount": order_details_json["payment_details"]["customer_amount"],
         "Current Date": datetime.datetime.now().strftime("%Y-%m-%d"),
-        "Return Type": order_details_json["product_details"]["price_type"],
+        "Return Type": '-' if "price_type" not in order_details_json["product_details"] else order_details_json["product_details"]["price_type"],
         "Cancellation Reason": '-' if "cancellation_reason" not in order_details_json else order_details_json["cancellation_reason"],
         "Courier Partner Name": '-' if "courier_name" not in order_details_json else order_details_json["courier_name"],
         "Refund Status": '-' if "refund_status" not in refund_details_json else refund_details_json["refund_status"],
