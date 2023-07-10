@@ -11,7 +11,7 @@ from langchain.prompts.chat import (
     HumanMessagePromptTemplate
 )
 
-st.title("M-CX Bot 1")
+st.title("Virtual Support Agent")
 
 openai.api_key = st.secrets.get("OPENAI_API_KEY")
 
