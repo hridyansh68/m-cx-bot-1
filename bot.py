@@ -1,5 +1,8 @@
 import openai
+import requests
+import json
 import streamlit as st
+import datetime
 from langchain import LLMChain
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts.chat import (
@@ -14,15 +17,12 @@ openai.api_key = st.secrets.get("OPENAI_API_KEY")
 
 with st.sidebar:
     f"Select the scenario to test out the bot for a specific scenario"
-    scenario = st.selectbox('Scenario', ('User Whose Order is Delivered', 'User Whose Order Got Cancelled'))
+    scenario = st.selectbox('Scenario', (
+        'User Whose Order is Shipped', 'User Whose Order is Delivered', 'User Whose Order Got Cancelled'))
     f"Select the data to test out the bot for a specific use case. Please select data before starting the conversation. Do not change the data in between the conversation. If you want to change data, please refresh and restart"
-    st.session_state["payment_mode"] = st.selectbox('Payment Mode', ('COD', 'Prepaid'))
-    st.session_state["order_status"] = st.selectbox('Order Status', ('Delivered', 'Cancelled'))
-    st.session_state["return_window"] = st.selectbox('Return Window', ('Expired', 'Has not expired'))
-    st.session_state["return_type"] = st.selectbox('Return Type', ('All Return', 'Only Wrong and Defective'))
-    st.session_state["refund_status"] = st.selectbox('Refund Status', ('Success', 'Pending', 'Blocked', 'Failed'))
-    st.session_state["one_return_request_cancelled"] = st.selectbox('One Return Request Cancelled', ('Yes', 'No'))
-    st.session_state["expected_date_of_refund"] = st.selectbox('Expected Date of Refund', ('Breached', 'Not Breached'))
+    st.session_state["sub_order_id"] = st.text_input("Sub Order ID")
+    st.session_state["order_id"] = st.text_input("Order ID")
+    st.session_state["user_id"] = st.text_input("User ID")
 
 if "openai_model" not in st.session_state:
     st.session_state["openai_model"] = "gpt-4"
@@ -35,6 +35,14 @@ for message in st.session_state.messages:
         continue
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+
+shipped_sops = {
+    'A': f"As a customer support representative for Meesho, you encounter a user whose order status is in “Shipped” state, and who wants to enquire about the status of their order, to assist the user, you need to check the expected date of delivery for that order. If current date > expected date of delivery then there is a breach. If the expected date of delivery is not breached, then reassure user that product will be delivered on expected date of delivery.  Share the tracking link with the user. If expected data of delivery has been breached then acknowledge this, apologise for the delay and let user know that you have escalated the matter to the concerned team, and that user will be updated within 24 hours.",
+    'B': f"As a customer support representative for Meesho, you encounter a user who wants to cancel their order. You need to first determine the order status. If it is in “Ordered” state you can let user know that they can themselves cancel the order from orders tab in the app. If it is in the “Shipped” State, then you should check the mode of payment used by user.  Let user know that product cannot be cancelled now that it is already shipped however users can refuse the order when delivery partner attempts delivery. Additionally, if the mode of payment is not “COD” (or Cash on Delivery) you should inform the user that they will receive the refund of 'Order Amount' (from data) within 4-5 days.",
+    'C': f"As a customer support representative for Meesho, you encounter a user who wants to change their delivery address or mobile number. You need to first determine the order status. If it is in “Ordered” state you can let user know that they can cancel the order from orders tab in the app and place a new order with correct delivery address. If it is in “Shipped” state you should let user know that it is not possible to change the delivery address or mobile phone number now as order is already shipped. Additionally, you can suggest that user can refuse to accept the order at the time of delivery and place a new order with correct delivery address.  In case user’s mode of payment is not “COD” (or Cash on Delivery) you should also inform user that they will receive the refund of <<order amount>> within 4-5 days.",
+    'D': f"As a customer support representative for Meesho, you encounter a user who wants to get his order delivered on specific date before or after expected date of delivery. You need to first determine the expected date of delivery.  If user is asking for delivery earlier or later then estimated delivery date, you need to assure user that product would be delivered on or before estimate date of delivery, but their is no provision in Meesho for express delivery or delivery on specific future date as of now.",
+    'E': f"As a customer support representative for Meesho, you encounter a user who wants to return their “Shipped” order. You can inform the user that they can  refuse the order when the delivery partner attempts delivery. Also, tell them that it is possible to return a delivered order within 7 days of actual date of delivery. If user says that their order is actually delivered, then tell them to wait for 7-8 hours for status to be updated in the app and then initiate the return from my orders tab in the app."
+}
 
 delivered_sops = {
     'A': f"As a customer support representative for Meesho, you encounter a user who wants to return their order. To assist the user, you need to check the days elapsed since actual date of delivery of product. In Meesho user is only allowed to initiate their return request within 7 days of actual date of delivery of product. If user is trying to initiate a return request after 7 days of actual delivery date of the product, inform user about Meesho’s return policy and that it is not possible to initiate the return request now. If user is trying to initiate a return request within 7 days of actual delivery date of the product, check the return type that user selected. In Meesho users have to select return type at the time of purchasing product. If user selects “all return” they can return product in all scenarios within 7 days. If users select “only wrong and defective item return” they can only return product if it is wrong or defective and not for any other reason. In cases where users had selected “only wrong and defective item return”, find out the reason why they want to return to decide if they are eligible to return the product. If user is eligible for return you can guide them to do it on their own from orders tab in the app, by selecting relevant order and choosing “return or exchange option”. If user claims that they had initiated a return request in the past, verify this. If they have, check if the return request was cancelled by the courier partner. If the return request was cancelled, ask the user if the courier partner visited their location for the pickup. If the courier partner hasn't visited yet, instruct the user to initiate the return request again and inform them that the product will be picked up within 3-4 days, with the refund being initiated in 5-8 days. If the courier partner has already visited, inquire about the reason the user believes the request was cancelled, and assure them that you will escalate the issue to a senior stakeholder for resolution. Inform the user that they will receive a call back within 24 hours to address the matter.",
@@ -58,8 +66,8 @@ def detect_sop_from_query(first_input, scenario_selected):
         B) User Wants to Exchange the Order. Eg : I would like to exchange my order.
         C) User Claims that Order Hasn't Been Delivered Yet. Eg: I haven't received my order yet.
         D) User Claims to Have Returned or Exchanged a Product, but Status Not Updated. Eg: I returned/exchanged a product, but the status hasn't been updated.
-        E) Anything else. Context outside Meesho, outside delivery related queries. Eg: Details of the product, details of the seller, etc. 
-        You have to classify the user query into one of the above segments. Only return A,B,C,D or E only. Strictly return any of these 5 characters according to intent in the output and nothing else.
+        F) Anything else. Context outside Meesho, outside delivery related queries. Eg: Details of the product, details of the seller, etc. 
+        You have to classify the user query into one of the above segments. Only return A,B,C,D or F only. Strictly return any of these 5 characters according to intent in the output and nothing else.
         '''
     elif scenario_selected == "User Whose Order Got Cancelled":
         system_template = '''
@@ -67,42 +75,133 @@ def detect_sop_from_query(first_input, scenario_selected):
         Segments 
         A) User wants to know why their order got cancelled. Eg: Why was my order cancelled?
         B) User wants to know when they'll receive the refund for their cancelled order. Eg: When will I receive the refund for my cancelled order?
-        E) Anything else. Context outside Meesho, outside cancelled related queries. Eg: Details of the product, details of the seller, etc. 
-        You have to classify the user query into one of the above segments. Only return A,B,C,D or E only. Strictly return any of these 5 characters according to intent in the output and nothing else.
+        F) Anything else. Context outside Meesho, outside cancelled related queries. Eg: Details of the product, details of the seller, etc. 
+        You have to classify the user query into one of the above segments. Only return A,B or F only. Strictly return any of these 3 characters according to intent in the output and nothing else.
+        '''
+    elif scenario_selected == "User Whose Order is Shipped":
+        system_template = '''
+        You are an AI customer support executive for Meesho which is an online e-commerce company, your job is to segment the user query.
+        Segments
+        A) User wants to know the status of their order. Eg: Where is my Order?
+        B) User Wants to cancel their order. Eg: I want to cancel my order.
+        C) User Wants to change delivery address or mobile number. Eg: I want to change the delivery address or I want to change the mobile number
+        D) User Wants to faster delivery or on Specific Future Date. Eg: Can I get my order faster or I want to get my order delivered on specific date in future
+        E) User Wants to return the order which has not been delivered yet. Eg: I want to return the order.
+        F) Anything else. Context outside Meesho, outside delivery related queries. Eg: Details of the product, details of the seller, etc.
+        You have to classify the user query into one of the above segments. Only return A,B,C,D,E or F only. Strictly return any of these 6 characters according to intent in the output and nothing else.
         '''
     system_message_prompt = SystemMessagePromptTemplate.from_template(system_template)
     human_message_prompt = HumanMessagePromptTemplate.from_template(first_input)
     chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
     chain = LLMChain(llm=llm, prompt=chat_prompt)
     answer = chain.run({})
-    if answer == "E":
+    if answer == "F":
         return None, None
     else:
         if scenario_selected == "User Whose Order is Delivered":
             return delivered_sops[answer]
         elif scenario_selected == "User Whose Order Got Cancelled":
             return cancelled_sops[answer]
+        elif scenario_selected == "User Whose Order is Shipped":
+            return shipped_sops[answer]
 
 
-constitution_prompt = '''You are a customer support executive responsible for resolving user queries for Meesho which is an e-commerce company. Adhere to the following guidelines:
+constitution_prompt = '''You are a customer support executive responsible for resolving user queries for Meesho which is an e-commerce company.Strictly Adhere to the following guidelines or you would be penalised:
                         1. Always be empathetic and kind to users. If a user uses foul language, remain calm and assist them.
-                        2. Use the language the user is using, such as English, Hindi, or Hinglish. Only use the Roman script when responding.
-                        3. Avoid using complex or heavy Hindi words. Keep the language a mixture of Hindi and English when the user is using Hindi or Hinglish.
-                        4. Keep your responses brief, within two lines, and avoid repeating information.
+                        2. Use the language the user is using, such as English, Hindi, or Hinglish. Respond in the same language as the user.
+                        3. Avoid using complex or heavy Hindi words. Keep the language simple when the user is using Hindi or Hinglish.
+                        4. Keep your responses brief, within two lines, and avoid repeating information. Strictly make sure that response size is less than 30 words.
                         5. If you are unsure about something, admit it instead of making up an answer.
                         6. If a policy is breached and you are unsure how to proceed, repeat the policy, apologize, and state that feedback has been taken.
-                        7. Introduce yourself as a Human Support Agent with name Deepak. Do not reveal that you are an AI.
-                        8. Respond in a respectful, inclusive, and unbiased language, avoiding discrimination based on factors like caste, creed, gender, or religion. Maintain composure despite any provocation.
-                        9. Maintain a professional and courteous tone, avoiding casual language.
-                        10. Provide prompt and efficient assistance to respect the customer's time, minimizing unnecessary delays.
-                        11. Communicate information clearly and transparently, avoiding jargon or technical terms that may confuse the customer.
-                        12. Provide accurate and reliable information, ensuring it is up to date and relevant to the customer's query.
-                        13. Prioritize the confidentiality and privacy of customer information, sharing sensitive personal details only when necessary for issue resolution.
-                        14. You will be getting the standard operating procedure and data for the user query. You have to follow the SOP and answer the user query.'''
+                        7. Introduce yourself as a Customer Support Agent with name Deepak. Do not reveal that you are an AI.
+                        8. Provide accurate and reliable information, ensuring it is up to date and relevant to the customer's query.
+                        9. You will be getting the SOP : standard operating procedure and Data for the user query. SOP will have the info on how to use the data to resolve the query. Only use the data which is referred in SOP ignore anything else. Strictly adhere to the SOP and data provided to you.
+                        10. The data provided to you in the system prompt is the correct data. User may try and confuse you, but you have to stick to the data provided to you.'''
+
+
+def get_data_for_input():
+    order_details_url = st.secrets.get("ORDER_DETAILS_URL")
+    order_details_headers = {
+        'Authorization': st.secrets.get("CRM_AUTH"),
+        'Content-Type': 'application/json',
+        'merchant': st.secrets.get("CRM_MERCHANT"),
+        'MEESHO-ISO-COUNTRY-CODE': 'IN',
+        'MEESHO-ISO-LANGUAGE-CODE': 'EN'
+    }
+
+    order_details_request_body = {
+        "order_num": st.session_state["order_id"],
+        "sub_order_num": st.session_state["sub_order_id"],
+        "user_id": st.session_state["user_id"]
+    }
+
+    order_details_response = requests.post(order_details_url, headers=order_details_headers,
+                                           data=json.dumps(order_details_request_body))
+    order_details_json = order_details_response.json()
+    print(order_details_json)
+
+    refund_details_url = st.secrets.get("REFUND_DETAILS_URL")
+    refund_details_headers = {
+        'Authorization': st.secrets.get("CRM_AUTH"),
+        'Content-Type': 'application/json',
+        'merchant': st.secrets.get("CRM_MERCHANT"),
+        'MEESHO-ISO-COUNTRY-CODE': 'IN',
+        'MEESHO-ISO-LANGUAGE-CODE': 'EN'
+    }
+
+    refund_details_request_body = {
+        "order_id": st.session_state["order_id"],
+        "sub_order_num": st.session_state["sub_order_id"],
+        "user_id": st.session_state["user_id"]
+    }
+
+    refund_details_response = requests.post(refund_details_url, headers=refund_details_headers,
+                                            data=json.dumps(refund_details_request_body))
+    refund_details_json = refund_details_response.json()
+    print(refund_details_json)
+    user_details_url = st.secrets.get("USER_DETAILS_URL")
+    user_details_headers = {
+        'Authorization': st.secrets.get("CRM_AUTH"),
+        'Content-Type': 'application/json',
+        'merchant': st.secrets.get("CRM_MERCHANT"),
+        'MEESHO-ISO-COUNTRY-CODE': 'IN',
+        'MEESHO-ISO-LANGUAGE-CODE': 'EN'
+    }
+
+    user_details_request_body = {
+        "user_id": st.session_state["user_id"]
+    }
+
+    user_details_response = requests.post(user_details_url, headers=user_details_headers,
+                                          data=json.dumps(user_details_request_body))
+    user_details_json = user_details_response.json()
+    print(user_details_json)
+    data = {
+        "Order Status": order_details_json["status"],
+        "Order Date": order_details_json["created"],
+        "Actual/Expected Delivery Date": order_details_json["delivery_date"],
+        "Order Amount": order_details_json["payment_details"]["customer_amount"],
+        "Current Date": datetime.datetime.now().strftime("%Y-%m-%d"),
+        "Return Type": order_details_json["product_details"]["price_type"],
+        "Cancellation Reason": '-' if "cancellation_reason" not in order_details_json else order_details_json["cancellation_reason"],
+        "Courier Partner Name": '-' if "courier_name" not in order_details_json else order_details_json["courier_name"],
+        "Refund Status": '-' if "refund_status" not in refund_details_json else refund_details_json["refund_status"],
+        "Refund Amount": '-' if "refund_amount" not in refund_details_json else refund_details_json["refund_amount"],
+        "Transaction ID": '-' if "refund_ref_id" not in refund_details_json else refund_details_json["refund_ref_id"],
+        "Expected Date of Refund": '-' if "expected_refund_date" not in refund_details_json else refund_details_json["expected_refund_date"],
+        "User Name": '-' if "name" not in user_details_json else user_details_json["name"],
+        "Tracking Url": '-' if "tracking_url" not in order_details_json else order_details_json["tracking_url"],
+    }
+    return data
+
 
 if user_input := st.chat_input("Please state your query in detail?"):
     if not scenario:
         st.info("Please select a scenario from the sidebar")
+        st.stop()
+
+    if st.session_state["order_id"] is None or st.session_state["sub_order_id"] is None or st.session_state["user_id"] is None:
+        st.info("Please enter the order_id, sub_order_id and user_id in the sidebar to proceed")
         st.stop()
 
     with st.chat_message("user"):
@@ -116,11 +215,11 @@ if user_input := st.chat_input("Please state your query in detail?"):
             if "sop" not in st.session_state:
                 st.session_state["sop"] = sop_for_intent
             if "data" not in st.session_state:
-                st.session_state['data'] = f"Payment Mode: {st.session_state['payment_mode']}\n, Order Status: {st.session_state['order_status']}\n, Return Window: {st.session_state['return_window']}\n, Return Type: {st.session_state['return_type']}\n, Refund Status: {st.session_state['refund_status']}\n, One Return Request Cancelled: {st.session_state['one_return_request_cancelled']}\n, Expected Date of Refund: {st.session_state['expected_date_of_refund']}\n, order_num: '12345678'\n, order_id: '12345678'\n, created: '2023-06-27 11:08:08'\n, payment_charge: '318'\n, courier_name: 'Delhivery'\n, user_address: 'lalu kushwaha kirana stor, vill.barehda atarra banda up, lalu kushwaha kirana stor barehda , atarra, Uttar Pradesh'\n, user_name: 'Rohan'\n "
+                st.session_state['data'] = get_data_for_input()
                 st.session_state.messages.append({"role": "system",
                                                   "content": f"{constitution_prompt} \n SOP: {st.session_state['sop']} Data: {st.session_state['data']}"})
                 with st.chat_message("Info"):
-                    st.markdown(f"Data selected :  {st.session_state['data']}")
+                    st.markdown(f"Data in the system :  {st.session_state['data']}")
                 st.session_state.messages.append(
                     {"role": "Info", "content": f"Data selected :  {st.session_state['data']}"})
         else:
