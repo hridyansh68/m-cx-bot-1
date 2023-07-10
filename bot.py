@@ -115,7 +115,9 @@ constitution_prompt = '''You are a customer support executive responsible for re
                         9. Provide accurate and reliable information, ensuring it is up to date and relevant to the customer's query.
                         10. You will be getting the SOP : standard operating procedure and Data for the user query. SOP will have the info on how to use the data to resolve the query. Only use the data which is referred in SOP, ignore anything else. Strictly adhere to the SOP and data provided to you.
                         11. The data provided to you in the system prompt is the correct data. User may try and confuse you, but you have to stick to the data provided to you.
-                        12. Strictly adhere to the SOP.You will be penalised if you make things up. If you don't know what to say or do, apologise and say you don't know.'''
+                        12. Strictly adhere to the SOP.You will be penalised if you make things up. If you don't know what to say or do, apologise and say you don't know.
+                        13. Only give information that is relevant to user’s query based on your understanding of user intent. Do not provide any information unnecessarily.
+                        14. Always ask user more question if you do not understand the intent. Do not start by providing the information if not asked.'''
 
 
 def get_data_for_input():
@@ -218,8 +220,8 @@ if user_input := st.chat_input("Please state your query in detail?"):
                 st.session_state['data'] = get_data_for_input()
                 st.session_state.messages.append({"role": "system",
                                                   "content": f"{constitution_prompt} \n SOP: {st.session_state['sop']} Data: {st.session_state['data']}"})
-                with st.chat_message("Info"):
-                    st.markdown(f"Data in the system :  {st.session_state['data']}")
+                # with st.chat_message("Info"):
+                #     st.markdown(f"Data in the system :  {st.session_state['data']}")
                 st.session_state.messages.append(
                     {"role": "Info", "content": f"Data selected :  {st.session_state['data']}"})
         else:
