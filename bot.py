@@ -25,7 +25,7 @@ with st.sidebar:
     st.session_state["user_id"] = st.text_input("User ID")
 
 if "openai_model" not in st.session_state:
-    st.session_state["openai_model"] = "gpt-4"
+    st.session_state["openai_model"] = "gpt-3.5-turbo"
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
