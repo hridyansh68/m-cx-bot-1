@@ -12,7 +12,7 @@ with st.sidebar:
     st.session_state["order_id"] = st.text_input("Order ID")
     st.session_state["user_id"] = st.text_input("User ID")
     if "state" in st.session_state:
-        f"Current state: {st.session_state['state']}"
+        f"Current state:\n {st.session_state['state']}"
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -21,7 +21,7 @@ if "state" not in st.session_state:
     st.session_state["state"] = {}
 
 if "room_code" not in st.session_state:
-    st.session_state["room_code"] = "1234"
+    st.session_state["room_code"] = "streamlit_testing"
 
 for message in st.session_state.messages:
     if message["role"] == "system":
@@ -77,6 +77,8 @@ if user_input := st.chat_input("Please state your query in detail?"):
         st.stop()
 
     if "transfer_to_human_agent" in assistant_message and assistant_message["transfer_to_human_agent"]:
+        message_placeholder = st.empty()
+        message_placeholder.markdown(assistant_message["next_message"])
         st.info("Transferring to human agent")
         st.stop()
 
@@ -87,4 +89,5 @@ if user_input := st.chat_input("Please state your query in detail?"):
         message_placeholder = st.empty()
         full_response = assistant_message["next_message"]
         message_placeholder.markdown(full_response)
+        st.info(f"State : {assistant_message['state']}")
     st.session_state.messages.append({"role": "assistant", "content": full_response})
