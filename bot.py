@@ -41,7 +41,8 @@ def fetch_next_message():
         },
         "order_details": {
             "order_id": st.session_state["order_id"],
-            "sub_order_id": st.session_state["sub_order_id"]
+            "sub_order_id": st.session_state["sub_order_id"],
+            "order_status": "SHIPPED",
         },
         "state": st.session_state["state"],
         "room_code": st.session_state["room_code"]
